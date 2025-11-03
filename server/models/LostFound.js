@@ -35,12 +35,20 @@ const lostFoundSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    reporterName: {
+        type: String,
+        required: false // Optional for backward compatibility with existing items
+    },
     claimed: {
         type: Boolean,
         default: false
+    },
+    claimedAt: {
+        type: Date,
+        default: null
     }
 }, {
     timestamps: true
 });
 
-module.exports = mongoose.model('LostFound', lostFoundSchema); 
+module.exports = mongoose.model('LostFound', lostFoundSchema);

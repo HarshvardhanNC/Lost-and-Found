@@ -3,36 +3,89 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const { auth } = require('../middleware/auth');
 const { validateLostFoundItem } = require('../middleware/validators');
-
-// Define the schema
-const lostFoundSchema = new mongoose.Schema({
-    title: { type: String, required: true },
-    description: { type: String, required: true },
-    type: { type: String, enum: ['lost', 'found'], required: true },
-    location: { type: String, required: true },
-    date: { type: Date, required: true },
-    contact: { type: String, required: true },
-    imageUrl: { type: String, default: '' },
-    reportedBy: { type: String, required: true },
-    claimed: { type: Boolean, default: false },
-    claimedAt: { type: Date, default: null }
-}, {
-    timestamps: true
-});
-
-// Create the model if it doesn't exist
-const LostFound = mongoose.models.LostFound || mongoose.model('LostFound', lostFoundSchema);
+const LostFound = require('../models/LostFound');
+const User = require('../models/User');
 
 // Get all lost and found items
 router.get('/', async (req, res) => {
     try {
         console.log('GET /api/lost-found - Fetching all items');
-        const items = await LostFound.find().sort({ createdAt: -1 });
-        console.log(`Found ${items.length} items`);
-        res.json(items);
+        const items = await LostFound.find()
+            .sort({ createdAt: -1 })
+            .lean(); // Convert to plain JavaScript objects
+        
+        // Fetch user names for all items and ensure reporterName is set
+        const itemsWithReporters = await Promise.all(items.map(async (item) => {
+            let userId = null;
+            let reporterName = null;
+            let reporterEmail = '';
+            
+            // Extract user ID from reportedBy field
+            if (!item.reportedBy) {
+                userId = null;
+            } else if (typeof item.reportedBy === 'string') {
+                userId = item.reportedBy;
+            } else if (item.reportedBy && typeof item.reportedBy === 'object') {
+                if (item.reportedBy._id) {
+                    userId = item.reportedBy._id.toString();
+                } else if (item.reportedBy.toString) {
+                    userId = item.reportedBy.toString();
+                } else {
+                    userId = String(item.reportedBy);
+                }
+                
+                // Check if already populated
+                if (item.reportedBy.name) {
+                    reporterName = item.reportedBy.name;
+                    reporterEmail = item.reportedBy.email || '';
+                }
+            } else {
+                userId = item.reportedBy ? item.reportedBy.toString() : null;
+            }
+            
+            // Use stored reporterName if available
+            if (item.reporterName) {
+                reporterName = item.reporterName;
+            }
+            
+            // If we still don't have the name, fetch it from database
+            if (!reporterName && userId && mongoose.Types.ObjectId.isValid(userId)) {
+                try {
+                    const user = await User.findById(userId).select('name email');
+                    if (user) {
+                        reporterName = user.name;
+                        reporterEmail = user.email || '';
+                        // Update the item in database with reporterName for future queries
+                        await LostFound.findByIdAndUpdate(item._id, { reporterName: user.name });
+                        console.log(`✅ Fetched and saved reporter name "${user.name}" for item ${item._id}`);
+                    } else {
+                        console.log(`⚠️ User not found for ID: ${userId}`);
+                        reporterName = 'Unknown Reporter';
+                    }
+                } catch (err) {
+                    console.error(`❌ Error fetching user for ID ${userId}:`, err.message);
+                    reporterName = 'Unknown Reporter';
+                }
+            } else if (!reporterName) {
+                reporterName = 'Unknown Reporter';
+            }
+            
+            // Format reportedBy for frontend
+            item.reportedBy = {
+                _id: userId || '',
+                name: reporterName,
+                email: reporterEmail
+            };
+            item.reporterName = reporterName; // Ensure reporterName is always set
+            
+            return item;
+        }));
+        
+        console.log(`✅ Returning ${itemsWithReporters.length} items with reporter names`);
+        res.json(itemsWithReporters);
     } catch (error) {
-        console.error('Error in GET /api/lost-found:', error);
-        res.status(500).json({ message: 'Server error' });
+        console.error('❌ Error in GET /api/lost-found:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
 
@@ -41,10 +94,17 @@ router.post('/', auth, validateLostFoundItem, async (req, res) => {
     try {
         console.log('POST /api/lost-found - Adding new item');
         console.log('Request body:', req.body);
+        console.log('Current user:', req.user);
         
         const { title, description, type, location, date, contact, imageUrl, reportedBy } = req.body;
         
-        // Create new item
+        // Get user info - ensure we have the current user's name
+        const currentUser = await User.findById(req.user.id).select('name email');
+        if (!currentUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        
+        // Create new item with reporter name stored directly
         const newItem = new LostFound({
             title,
             description,
@@ -54,16 +114,31 @@ router.post('/', auth, validateLostFoundItem, async (req, res) => {
             contact,
             imageUrl: imageUrl || '',
             reportedBy: reportedBy || req.user.id,
+            reporterName: currentUser.name, // Store reporter name directly
             claimed: false
         });
         
         // Save to database
         await newItem.save();
-        console.log('Created new item:', newItem);
+        
+        // Populate reporter information before sending response (for compatibility)
+        await newItem.populate('reportedBy', 'name email');
+        
+        // Ensure reporterName is set in response
+        if (!newItem.reporterName && newItem.reportedBy && newItem.reportedBy.name) {
+            newItem.reporterName = newItem.reportedBy.name;
+        }
+        
+        console.log('Created new item:', {
+            id: newItem._id,
+            title: newItem.title,
+            reporterName: newItem.reporterName,
+            reportedBy: newItem.reportedBy
+        });
         res.status(201).json(newItem);
     } catch (error) {
         console.error('Error in POST /api/lost-found:', error);
-        res.status(500).json({ message: 'Server error' });
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
 
@@ -79,8 +154,8 @@ router.post('/:id/mark-claimed', auth, async function(req, res) {
         console.log('User ID:', userId);
         console.log('User Role:', userRole);
         
-        // Find the item
-        const item = await LostFound.findById(itemId);
+        // Find the item and populate reportedBy if needed
+        const item = await LostFound.findById(itemId).populate('reportedBy', 'name email');
         
         if (!item) {
             console.log('Item not found');
@@ -88,7 +163,11 @@ router.post('/:id/mark-claimed', auth, async function(req, res) {
         }
         
         // Allow admin or the reporter to mark as claimed
-        const canMarkClaimed = userRole === 'admin' || item.reportedBy.toString() === userId.toString();
+        // Handle both populated user object and ObjectId
+        const reportedById = item.reportedBy._id 
+            ? item.reportedBy._id.toString() 
+            : (item.reportedBy.toString ? item.reportedBy.toString() : item.reportedBy);
+        const canMarkClaimed = userRole === 'admin' || reportedById === userId.toString();
         
         if (!canMarkClaimed) {
             console.log('User not authorized');

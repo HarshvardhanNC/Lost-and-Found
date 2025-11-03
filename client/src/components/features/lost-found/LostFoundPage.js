@@ -263,6 +263,19 @@ const LostFoundPage = () => {
                                                 {item.contact}
                                             </a>
                                         </div>
+                                        {/* Reporter Name */}
+                                        {(item.reportedBy || item.reporterName) && (
+                                            <div className="flex items-center gap-2 text-sm text-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-2 rounded-lg mt-3 border border-blue-100">
+                                                <span className="text-lg flex-shrink-0">👤</span>
+                                                <span className="font-medium">
+                                                    Reported by: <span className="text-blue-600 font-semibold">
+                                                        {item.reporterName || 
+                                                         (typeof item.reportedBy === 'object' && item.reportedBy?.name) || 
+                                                         'Unknown Reporter'}
+                                                    </span>
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Claimed Status or Action Button */}
@@ -285,7 +298,9 @@ const LostFoundPage = () => {
                                     ) : (
                                         user && 
                                         item.reportedBy && 
-                                        item.reportedBy.toString() === user.id && 
+                                        (typeof item.reportedBy === 'object' && item.reportedBy._id 
+                                            ? item.reportedBy._id.toString() 
+                                            : (item.reportedBy.toString ? item.reportedBy.toString() : item.reportedBy)) === user.id && 
                                         item.type === 'found' && (
                                             <button 
                                                 className="w-full mt-4 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
