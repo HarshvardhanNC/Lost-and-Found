@@ -1,16 +1,8 @@
 // NOTE: This is just for development. In production, these credentials should be stored securely in a backend database
 export const adminCredentials = [
     {
-        email: 'admin@collegebuddy.com',
+        email: 'admin@gmail.com',
         password: 'admin123' // In production, this should be hashed
-    },
-    {
-        email: 'principal@collegebuddy.com',
-        password: 'admin123'
-    },
-    {
-        email: 'harshvardhanchinchkhedkar@gmail.com',
-        password: 'collegebuddy@123'
     }
 ];
 

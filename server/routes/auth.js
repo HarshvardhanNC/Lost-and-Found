@@ -3,19 +3,21 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { auth } = require('../middleware/auth');
+const { validateRegister, validateLogin } = require('../middleware/validators');
+const { authLimiter } = require('../middleware/rateLimiter');
 
 // Create initial admin (protected, one-time setup)
 router.post('/create-admin', async (req, res) => {
     try {
-        const adminExists = await User.findOne({ email: 'harshvardhanchinchkhedkar@gmail.com' });
+        const adminExists = await User.findOne({ email: 'admin@gmail.com' });
         if (adminExists) {
             return res.status(400).json({ error: 'Admin already exists' });
         }
 
         const admin = new User({
-            name: 'Harshvardhan',
-            email: 'harshvardhanchinchkhedkar@gmail.com',
-            password: 'collegebuddy@123',
+            name: 'Admin',
+            email: 'admin@gmail.com',
+            password: 'admin123',
             role: 'admin'
         });
 
@@ -27,7 +29,7 @@ router.post('/create-admin', async (req, res) => {
 });
 
 // Register a new user
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, validateRegister, async (req, res) => {
     try {
         const { name, email, password } = req.body;
 
@@ -47,8 +49,12 @@ router.post('/register', async (req, res) => {
 
         await user.save();
 
-        // Generate token
-        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
+        // Generate token with expiration (24 hours)
+        const token = jwt.sign(
+            { userId: user._id },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
 
         res.status(201).json({
             token,
@@ -65,23 +71,15 @@ router.post('/register', async (req, res) => {
 });
 
 // Login user
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, validateLogin, async (req, res) => {
     try {
         const { email, password } = req.body;
 
         // First check if this is an admin login
         const adminCredentials = [
             {
-                email: 'admin@collegebuddy.com',
+                email: 'admin@gmail.com',
                 password: 'admin123'
-            },
-            {
-                email: 'principal@collegebuddy.com',
-                password: 'admin123'
-            },
-            {
-                email: 'harshvardhanchinchkhedkar@gmail.com',
-                password: 'collegebuddy@123'
             }
         ];
 
@@ -128,8 +126,12 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Invalid credentials' });
         }
 
-        // Generate token
-        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
+        // Generate token with expiration (24 hours)
+        const token = jwt.sign(
+            { userId: user._id },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
 
         res.json({
             token,
@@ -183,6 +185,35 @@ router.get('/users', auth, async (req, res) => {
         res.json(usersWithActivity);
     } catch (error) {
         console.error('Error fetching users:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete user (admin only)
+router.delete('/users/:id', auth, async (req, res) => {
+    try {
+        // Check if the user is an admin
+        if (req.user.role !== 'admin') {
+            return res.status(403).json({ error: 'Access denied. Admin only.' });
+        }
+
+        const userId = req.params.id;
+
+        // Prevent admin from deleting themselves
+        if (userId === req.user.id) {
+            return res.status(400).json({ error: 'Cannot delete your own account' });
+        }
+
+        // Find and delete user
+        const user = await User.findByIdAndDelete(userId);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting user:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });

@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
-import {
-  Box,
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Paper,
-  Alert,
-} from '@mui/material';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { register } from '../../services/api';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { registerUser } from '../../store/slices/authSlice';
+import { useAuth } from '../../context/AuthContext'; // Keeping for sync
 
 const Register = () => {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  
+  // Redux state
+  const { user, loading: reduxLoading, error: reduxError } = useAppSelector((state) => state.auth);
+  
+  // Context API (for backward compatibility)
+  const { login: contextLogin } = useAuth();
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -20,7 +21,22 @@ const Register = () => {
     confirmPassword: '',
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+
+  // Sync Redux state with Context API
+  useEffect(() => {
+    if (user) {
+      contextLogin(localStorage.getItem('token'), user);
+      // Registration successful - redirect to login
+      navigate('/login');
+    }
+  }, [user, contextLogin, navigate]);
+
+  // Handle Redux errors
+  useEffect(() => {
+    if (reduxError) {
+      setError(reduxError);
+    }
+  }, [reduxError]);
 
   const handleChange = (e) => {
     setFormData({
@@ -32,147 +48,134 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
 
-    try {
-      // Validate passwords match
-      if (formData.password !== formData.confirmPassword) {
-        setError('Passwords do not match');
-        return;
-      }
-
-      // Register user
-      const { confirmPassword, ...registerData } = formData;
-      await register(registerData);
-
-      // Registration successful - redirect to login
-      navigate('/login');
-    } catch (error) {
-      setError(error.error || 'An error occurred during registration');
-    } finally {
-      setLoading(false);
+    // Validate passwords match
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
     }
+
+    // Dispatch Redux action
+    const { confirmPassword, ...registerData } = formData;
+    dispatch(registerUser(registerData));
   };
 
+  const loading = reduxLoading;
+
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundImage: 'url(/images/campus.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1
-        }
-      }}
-    >
-      <Container component="main" maxWidth="xs" sx={{ position: 'relative', zIndex: 2 }}>
-        <Paper 
-          elevation={3} 
-          sx={{
-            p: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          }}
-        >
-          <Typography component="h1" variant="h5" gutterBottom>
+    <div className="min-h-screen w-full flex flex-col justify-center items-center relative bg-cover bg-center bg-no-repeat"
+      style={{ backgroundImage: 'url(/images/campus.jpg)' }}>
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black bg-opacity-50 z-10"></div>
+
+      {/* Main Container */}
+      <div className="relative z-20 w-full max-w-md mx-auto px-4">
+        {/* Card */}
+        <div className="bg-white bg-opacity-90 backdrop-blur-sm p-8 rounded-lg shadow-2xl flex flex-col items-center">
+          <h1 className="text-2xl font-semibold mb-6 text-gray-800">
             Student Registration
-          </Typography>
+          </h1>
 
           {error && (
-            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
+            <div className="w-full mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
               {error}
-            </Alert>
+            </div>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              label="Full Name"
-              name="name"
-              autoComplete="name"
-              autoFocus
-              value={formData.name}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              label="Email Address"
-              name="email"
-              autoComplete="email"
-              value={formData.email}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type="password"
-              autoComplete="new-password"
-              value={formData.password}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="confirmPassword"
-              label="Confirm Password"
-              type="password"
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              disabled={loading}
-            />
+          <form onSubmit={handleSubmit} className="w-full mt-2">
+            <div className="mb-4">
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                Full Name
+              </label>
+              <input
+                type="text"
+                id="name"
+                name="name"
+                autoComplete="name"
+                autoFocus
+                required
+                value={formData.name}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Enter your full name"
+              />
+            </div>
 
-            <Button
+            <div className="mb-4">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                autoComplete="email"
+                required
+                value={formData.email}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Enter your email"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                name="password"
+                autoComplete="new-password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Enter your password"
+              />
+            </div>
+
+            <div className="mb-6">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                Confirm Password
+              </label>
+              <input
+                type="password"
+                id="confirmPassword"
+                name="confirmPassword"
+                required
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Confirm your password"
+              />
+            </div>
+
+            <button
               type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
               disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-md transition duration-200 disabled:bg-blue-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
             >
               {loading ? 'Signing up...' : 'Sign Up'}
-            </Button>
+            </button>
 
-            <Button
-              fullWidth
-              variant="text"
+            <button
+              type="button"
               onClick={() => navigate('/login')}
-              sx={{ color: '#1976d2' }}
               disabled={loading}
+              className="w-full mt-3 text-blue-600 hover:text-blue-700 font-medium py-2 disabled:text-gray-400 disabled:cursor-not-allowed transition duration-200"
             >
               Already have an account? Sign in
-            </Button>
-          </Box>
-        </Paper>
-      </Container>
-    </Box>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default Register; 
+export default Register;

@@ -1,225 +1,310 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import './LostFound.css';
-import LostFoundForm from './LostFoundForm';
 import { useNavigate } from 'react-router-dom';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import { logout } from '../../../store/slices/authSlice';
+import { 
+  fetchItems, 
+  addItem, 
+  markAsClaimed, 
+  setFilter,
+  clearError 
+} from '../../../store/slices/lostFoundSlice';
+import { useAuth } from '../../../context/AuthContext';
+import LostFoundForm from './LostFoundForm';
 
 const LostFoundPage = () => {
-    const [items, setItems] = useState([]);
-    const [filter, setFilter] = useState('all'); // 'all', 'lost', 'found'
-    const [showAddForm, setShowAddForm] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const currentUser = JSON.parse(localStorage.getItem('user'));
+    const dispatch = useAppDispatch();
     const navigate = useNavigate();
-
+    
+    // Redux state
+    const { user } = useAppSelector((state) => state.auth);
+    const { items, loading, error, filter: reduxFilter } = useAppSelector((state) => state.lostFound);
+    
+    // Local state
+    const [showAddForm, setShowAddForm] = useState(false);
+    
+    // Context API (for backward compatibility)
+    const { logout: contextLogout } = useAuth();
+    
+    // Fetch items on mount
     useEffect(() => {
-        fetchItems();
-    }, []);
-
-    const fetchItems = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const response = await axios.get('http://localhost:5000/api/lost-found');
-            
-            // Sort items by date, newest first
-            const sortedItems = response.data.sort((a, b) => {
-                return new Date(b.date) - new Date(a.date);
-            });
-            
-            console.log('Fetched items:', sortedItems.length);
-            console.log('Items by type:', {
-                lost: sortedItems.filter(item => item.type === 'lost').length,
-                found: sortedItems.filter(item => item.type === 'found').length
-            });
-            
-            setItems(sortedItems);
-            setLoading(false);
-        } catch (error) {
-            console.error('Error fetching items:', error);
-            setError('Failed to load items. Please try again later.');
-            setLoading(false);
-        }
+        dispatch(fetchItems());
+    }, [dispatch]);
+    
+    // Filter items based on Redux filter state
+    const filteredItems = reduxFilter === 'all' 
+        ? items 
+        : items.filter(item => item.type === reduxFilter);
+    
+    const handleFilterChange = (filterType) => {
+        dispatch(setFilter(filterType));
     };
-
+    
     const handleAddItem = async (itemData) => {
-        try {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                alert('Please log in to report an item');
-                return;
-            }
-
-            const response = await axios.post(
-                'http://localhost:5000/api/lost-found',
-                {
-                    ...itemData,
-                    reportedBy: currentUser?.id
-                },
-                {
-                    headers: { Authorization: `Bearer ${token}` }
-                }
-            );
-
-            // Add the new item to the beginning of the list
-            setItems(prevItems => [response.data, ...prevItems]);
+        const result = await dispatch(addItem(itemData));
+        if (addItem.fulfilled.match(result)) {
             setShowAddForm(false);
             alert('Item reported successfully!');
-        } catch (error) {
-            console.error('Error adding item:', error.response?.data || error.message);
-            alert(error.response?.data?.message || 'Failed to add item. Please try again.');
+        } else {
+            alert(result.payload || 'Failed to add item. Please try again.');
         }
     };
-
+    
     const handleMarkAsClaimed = async (itemId) => {
-        try {
-            const token = localStorage.getItem('token');
-            const user = JSON.parse(localStorage.getItem('user'));
-            
-            if (!token || !user) {
-                alert('Please log in to mark items as claimed');
-                return;
-            }
-
-            const response = await axios.post(
-                `http://localhost:5000/api/lost-found/${itemId}/mark-claimed`,
-                { userId: user.id },
-                {
-                    headers: { Authorization: `Bearer ${token}` }
-                }
-            );
-
-            if (response.data.success) {
-                // Update the item in the local state
-                setItems(prevItems => 
-                    prevItems.map(item => 
-                        item._id === itemId 
-                            ? { 
-                                ...item, 
-                                claimed: true,
-                                claimedAt: response.data.claimedAt
-                              }
-                            : item
-                    )
-                );
-                alert('Item has been marked as claimed successfully!');
-            }
-        } catch (error) {
-            console.error('Error marking item as claimed:', error);
-            alert(error.response?.data?.message || 'Failed to mark item as claimed. Please try again.');
+        const result = await dispatch(markAsClaimed(itemId));
+        if (markAsClaimed.fulfilled.match(result)) {
+            alert('Item has been marked as claimed successfully!');
+        } else {
+            alert(result.payload || 'Failed to mark item as claimed. Please try again.');
         }
     };
-
+    
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        dispatch(logout());
+        contextLogout();
         navigate('/login');
     };
-
-    const filteredItems = items.filter(item => {
-        if (filter === 'all') return true;
-        return item.type === filter;
-    });
+    
+    // Clear error after 5 seconds
+    useEffect(() => {
+        if (error) {
+            const timer = setTimeout(() => {
+                dispatch(clearError());
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [error, dispatch]);
 
     if (loading) {
-        return <div className="loading">Loading...</div>;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+                <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-blue-600 mb-4"></div>
+                    <div className="text-2xl font-semibold text-gray-700">Loading items...</div>
+                </div>
+            </div>
+        );
     }
 
     if (error) {
-        return <div className="error">{error}</div>;
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-pink-100">
+                <div className="bg-white rounded-xl shadow-xl p-8 max-w-md mx-4">
+                    <div className="text-center">
+                        <div className="text-5xl mb-4">⚠️</div>
+                        <div className="text-xl font-bold text-red-600 mb-2">Error</div>
+                        <div className="text-gray-700">{error}</div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     return (
-        <div className="lost-found-container">
-            <div className="page-header">
-                <h1>Lost & Found</h1>
-                <div className="user-actions">
-                    <span className="user-name">Welcome, {currentUser?.name}</span>
-                    <button className="logout-btn" onClick={handleLogout}>
-                        Logout
-                    </button>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-100">
+            {/* Header */}
+            <div className="bg-white shadow-lg sticky top-0 z-50 backdrop-blur-md bg-white/90">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                                Lost & Found
+                            </div>
+                        </div>
+                        
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
+                            <div className="flex items-center gap-2 text-gray-700">
+                                <span className="text-lg">👋</span>
+                                <span className="font-medium">Welcome, {user?.name}</span>
+                            </div>
+                            <button 
+                                onClick={handleLogout}
+                                className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105"
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Filter Buttons */}
+                    <div className="mt-6 flex flex-wrap gap-3">
+                        <button 
+                            className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 ${
+                                reduxFilter === 'all' 
+                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg scale-105' 
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 shadow-md hover:shadow-lg'
+                            }`}
+                            onClick={() => handleFilterChange('all')}
+                        >
+                            📦 All Items ({items.length})
+                        </button>
+                        <button 
+                            className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 ${
+                                reduxFilter === 'lost' 
+                                    ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg scale-105' 
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 shadow-md hover:shadow-lg'
+                            }`}
+                            onClick={() => handleFilterChange('lost')}
+                        >
+                            🔍 Lost ({items.filter(i => i.type === 'lost').length})
+                        </button>
+                        <button 
+                            className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 ${
+                                reduxFilter === 'found' 
+                                    ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg scale-105' 
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 shadow-md hover:shadow-lg'
+                            }`}
+                            onClick={() => handleFilterChange('found')}
+                        >
+                            ✅ Found ({items.filter(i => i.type === 'found').length})
+                        </button>
+                        <button 
+                            onClick={() => setShowAddForm(true)}
+                            className="ml-auto px-4 sm:px-6 py-2 sm:py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
+                        >
+                            ➕ Report Item
+                        </button>
+                    </div>
                 </div>
-                <div className="filter-buttons">
-                    <button 
-                        className={`filter-btn all ${filter === 'all' ? 'active' : ''}`}
-                        onClick={() => setFilter('all')}
-                    >
-                        All Items
-                    </button>
-                    <button 
-                        className={`filter-btn lost ${filter === 'lost' ? 'active' : ''}`}
-                        onClick={() => setFilter('lost')}
-                    >
-                        Lost Items
-                    </button>
-                    <button 
-                        className={`filter-btn found ${filter === 'found' ? 'active' : ''}`}
-                        onClick={() => setFilter('found')}
-                    >
-                        Found Items
-                    </button>
-                </div>
-                <button 
-                    className="add-item-btn"
-                    onClick={() => setShowAddForm(true)}
-                >
-                    Report Item
-                </button>
             </div>
 
-            {loading ? (
-                <div>Loading...</div>
-            ) : error ? (
-                <div>{error}</div>
-            ) : (
-                <div className="items-grid">
-                    {filteredItems.length === 0 ? (
-                        <div className="no-items">No items found</div>
-                    ) : (
-                        filteredItems.map(item => (
-                            <div key={item._id} className={`item-card ${item.type}`}>
-                                {item.imageUrl && (
-                                    <img src={item.imageUrl} alt={item.title} className="item-image" />
-                                )}
-                                <div className="item-content">
-                                    <h3>{item.title}</h3>
-                                    <p className="item-description">{item.description}</p>
-                                    <div className="item-details">
-                                        <span>Location: {item.location}</span>
-                                        <span>Date: {new Date(item.date).toLocaleDateString()}</span>
+            {/* Items Grid */}
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+                {filteredItems.length === 0 ? (
+                    <div className="text-center py-16 sm:py-20">
+                        <div className="text-6xl sm:text-7xl mb-4">📭</div>
+                        <div className="text-xl sm:text-2xl font-bold text-gray-700 mb-2">No items found</div>
+                        <div className="text-gray-500">Try adjusting your filters</div>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 sm:gap-8">
+                        {filteredItems.map(item => (
+                            <div 
+                                key={item._id} 
+                                className={`group relative bg-white rounded-2xl shadow-lg overflow-hidden transition-all duration-300 transform hover:scale-105 hover:shadow-2xl ${
+                                    item.type === 'lost' 
+                                        ? 'border-t-4 border-red-500 hover:border-red-600' 
+                                        : 'border-t-4 border-green-500 hover:border-green-600'
+                                }`}
+                            >
+                                {/* Image Container with Overlay */}
+                                <div className="relative h-48 sm:h-56 overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                                    {item.imageUrl ? (
+                                        <>
+                                            <img 
+                                                src={item.imageUrl} 
+                                                alt={item.title} 
+                                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                            />
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                                        </>
+                                    ) : (
+                                        <div className={`w-full h-full flex items-center justify-center ${
+                                            item.type === 'lost' 
+                                                ? 'bg-gradient-to-br from-red-100 to-red-200' 
+                                                : 'bg-gradient-to-br from-green-100 to-green-200'
+                                        }`}>
+                                            <span className="text-6xl">
+                                                {item.type === 'lost' ? '🔍' : '✅'}
+                                            </span>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Type Badge */}
+                                    <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold text-white shadow-lg ${
+                                        item.type === 'lost' 
+                                            ? 'bg-gradient-to-r from-red-500 to-red-600' 
+                                            : 'bg-gradient-to-r from-green-500 to-emerald-600'
+                                    }`}>
+                                        {item.type === 'lost' ? 'LOST' : 'FOUND'}
                                     </div>
-                                    <p className="item-contact">
-                                        Contact: {item.contact}
+
+                                    {/* Claimed Badge */}
+                                    {item.claimed && (
+                                        <div className="absolute top-3 left-3 px-3 py-1 bg-gradient-to-r from-emerald-500 to-green-600 rounded-full text-xs font-bold text-white shadow-lg flex items-center gap-1">
+                                            <span>✓</span>
+                                            <span>CLAIMED</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Content */}
+                                <div className="p-5 sm:p-6">
+                                    {/* Title */}
+                                    <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors duration-200">
+                                        {item.title}
+                                    </h3>
+                                    
+                                    {/* Description */}
+                                    <p className="text-sm sm:text-base text-gray-600 mb-4 line-clamp-3 leading-relaxed">
+                                        {item.description}
                                     </p>
+                                    
+                                    {/* Details */}
+                                    <div className="space-y-2.5 mb-4">
+                                        <div className="flex items-start gap-2 text-sm text-gray-700">
+                                            <span className="text-lg mt-0.5 flex-shrink-0">📍</span>
+                                            <span className="font-medium break-words">{item.location}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                                            <span className="text-lg flex-shrink-0">📅</span>
+                                            <span>{new Date(item.date || item.createdAt).toLocaleDateString('en-US', { 
+                                                year: 'numeric', 
+                                                month: 'short', 
+                                                day: 'numeric' 
+                                            })}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-gray-700">
+                                            <span className="text-lg flex-shrink-0">📞</span>
+                                            <a 
+                                                href={`tel:${item.contact}`} 
+                                                className="font-medium text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+                                            >
+                                                {item.contact}
+                                            </a>
+                                        </div>
+                                    </div>
+
+                                    {/* Claimed Status or Action Button */}
                                     {item.claimed ? (
-                                        <div className="claimed-badge">
-                                            <span>✓ Claimed</span>
+                                        <div className="mt-4 px-4 py-3 bg-gradient-to-r from-emerald-50 to-green-50 border-2 border-emerald-300 rounded-xl">
+                                            <div className="flex items-center gap-2 text-emerald-700 font-semibold">
+                                                <span className="text-xl">✓</span>
+                                                <span>Claimed</span>
+                                            </div>
                                             {item.claimedAt && (
-                                                <span className="claimed-date">
-                                                    on {new Date(item.claimedAt).toLocaleDateString()}
-                                                </span>
+                                                <div className="text-xs text-emerald-600 mt-1 ml-7">
+                                                    on {new Date(item.claimedAt).toLocaleDateString('en-US', { 
+                                                        month: 'short', 
+                                                        day: 'numeric', 
+                                                        year: 'numeric' 
+                                                    })}
+                                                </div>
                                             )}
                                         </div>
                                     ) : (
-                                        currentUser && 
+                                        user && 
                                         item.reportedBy && 
-                                        item.reportedBy.toString() === currentUser.id && 
+                                        item.reportedBy.toString() === user.id && 
                                         item.type === 'found' && (
                                             <button 
-                                                className="mark-claimed-btn"
+                                                className="w-full mt-4 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold rounded-xl transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 flex items-center justify-center gap-2"
                                                 onClick={() => handleMarkAsClaimed(item._id)}
                                             >
-                                                Mark as Claimed
+                                                <span>✓</span>
+                                                <span>Mark as Claimed</span>
                                             </button>
                                         )
                                     )}
                                 </div>
+
+                                {/* Hover Effect Overlay */}
+                                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-purple-500/0 group-hover:from-blue-500/5 group-hover:to-purple-500/5 transition-all duration-300 pointer-events-none rounded-2xl"></div>
                             </div>
-                        ))
-                    )}
-                </div>
-            )}
+                        ))}
+                    </div>
+                )}
+            </div>
 
             {showAddForm && (
                 <LostFoundForm 
@@ -231,4 +316,4 @@ const LostFoundPage = () => {
     );
 };
 
-export default LostFoundPage; 
+export default LostFoundPage;

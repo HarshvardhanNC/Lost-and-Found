@@ -1,23 +1,53 @@
-import React, { useState } from 'react';
-import {
-  Box,
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Paper,
-  Alert,
-} from '@mui/material';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { loginUser } from '../../store/slices/authSlice';
+import { useAuth } from '../../context/AuthContext'; // Keeping for sync
 
 const Login = () => {
   const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  
+  // Redux state
+  const { user, loading: reduxLoading, error: reduxError } = useAppSelector((state) => state.auth);
+  
+  // Context API (for backward compatibility)
+  const { login: contextLogin } = useAuth();
+  
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+
+  // Sync Redux state with Context API
+  useEffect(() => {
+    if (user) {
+      contextLogin(localStorage.getItem('token'), user);
+    }
+  }, [user, contextLogin]);
+
+  // Handle Redux errors
+  useEffect(() => {
+    if (reduxError) {
+      setError(reduxError);
+    }
+  }, [reduxError]);
+
+  // Handle successful login
+  useEffect(() => {
+    if (user && !reduxLoading) {
+      console.log('User role:', user.role);
+      console.log('Redirecting to:', user.role === 'admin' ? '/admin/dashboard' : '/lost-found');
+      
+      // Redirect based on user role
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else {
+        navigate('/lost-found');
+      }
+    }
+  }, [user, reduxLoading, navigate]);
 
   const handleChange = (e) => {
     setFormData({
@@ -29,140 +59,95 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
-    try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: formData.email, password: formData.password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        
-        console.log('User role:', data.user.role);
-        console.log('Redirecting to:', data.user.role === 'admin' ? '/admin/dashboard' : '/lost-found');
-        
-        // Redirect based on user role
-        if (data.user.role === 'admin') {
-          navigate('/admin/dashboard');
-        } else {
-          navigate('/lost-found');
-        }
-      } else {
-        setError(data.error || 'Login failed');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      setError('An error occurred during login');
-    } finally {
-      setLoading(false);
-    }
+    
+    // Dispatch Redux action
+    dispatch(loginUser({ 
+      email: formData.email, 
+      password: formData.password 
+    }));
   };
 
+  const loading = reduxLoading;
+
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundImage: 'url(/images/campus.jpg)',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-        position: 'relative',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          zIndex: 1
-        }
-      }}
-    >
-      <Container component="main" maxWidth="xs" sx={{ position: 'relative', zIndex: 2 }}>
-        <Paper 
-          elevation={3} 
-          sx={{
-            p: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          }}
-        >
-          <Typography component="h1" variant="h5" gutterBottom>
-            Sign In to College Buddy
-          </Typography>
+    <div className="min-h-screen w-full flex flex-col justify-center items-center relative bg-cover bg-center bg-no-repeat"
+      style={{ backgroundImage: 'url(/images/campus.jpg)' }}>
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black bg-opacity-50 z-10"></div>
+
+      {/* Main Container */}
+      <div className="relative z-20 w-full max-w-md mx-auto px-4">
+        {/* Card */}
+        <div className="bg-white bg-opacity-90 backdrop-blur-sm p-8 rounded-lg shadow-2xl flex flex-col items-center">
+          <h1 className="text-2xl font-semibold mb-6 text-gray-800">
+            Sign In to Lost & Found System
+          </h1>
 
           {error && (
-            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
+            <div className="w-full mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
               {error}
-            </Alert>
+            </div>
           )}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              label="Email Address"
-              name="email"
-              autoComplete="email"
-              autoFocus
-              value={formData.email}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type="password"
-              autoComplete="current-password"
-              value={formData.password}
-              onChange={handleChange}
-              disabled={loading}
-            />
+          <form onSubmit={handleSubmit} className="w-full mt-2">
+            <div className="mb-4">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                id="email"
+                name="email"
+                autoComplete="email"
+                autoFocus
+                required
+                value={formData.email}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Enter your email"
+              />
+            </div>
 
-            <Button
+            <div className="mb-6">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                disabled={loading}
+                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Enter your password"
+              />
+            </div>
+
+            <button
               type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
               disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-md transition duration-200 disabled:bg-blue-400 disabled:cursor-not-allowed shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
             >
               {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
+            </button>
 
-            <Button
-              fullWidth
-              variant="text"
+            <button
+              type="button"
               onClick={() => navigate('/register')}
-              sx={{ color: '#1976d2' }}
               disabled={loading}
+              className="w-full mt-3 text-blue-600 hover:text-blue-700 font-medium py-2 disabled:text-gray-400 disabled:cursor-not-allowed transition duration-200"
             >
               Don't have an account? Sign up
-            </Button>
-          </Box>
-        </Paper>
-      </Container>
-    </Box>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default Login; 
+export default Login;
